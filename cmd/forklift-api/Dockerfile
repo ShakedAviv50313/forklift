@@ -1,0 +1,29 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.21.11-9 AS builder
+#change copy line to use pre-fetch dependencies args
+#COPY --chown=1001:0 
+#WORKDIR $REMOTE_SOURCE_DIR/app
+ENV GOFLAGS "-mod=vendor -tags=strictfipsruntime"
+ENV GOEXPERIMENT strictfipsruntime
+
+RUN GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o forklift-api github.com/konveyor/forklift-controller/pkg/forklift-api
+
+#@follow_tag(registry.redhat.io/ubi9-minimal:9.4)
+#change image to a public image
+FROM registry.access.redhat.com/ubi9-minimal:9.4-1227.1725849298
+# Required to be able to get files from within the pod
+RUN microdnf -y install tar && microdnf clean all
+
+#change to pre-fetch
+COPY --from=builder $REMOTE_SOURCE_DIR/app/forklift-api /usr/local/bin/forklift-api
+ENTRYPOINT ["/usr/local/bin/forklift-api"]
+
+LABEL \
+        com.redhat.component="forklift-api-container" \
+        name="forklift/forklift-api-rhel9" \
+        io.k8s.display-name="Forklift" \
+        io.k8s.description="Forklift - API" \
+        io.openshift.tags="migration,forklift,mtv" \
+        summary="Forklift- API" \
+        description="Forklift - API" \
+        maintainer="Migration Toolkit for Virtualization Team <migtoolkit-virt@redhat.com>"
+
