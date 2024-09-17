@@ -8,8 +8,7 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
-      == "mtv-api-dockerfile" && ( "./cmd/forklift-api/***".pathChanged() || ".tekton/forklift-api-pull-request.yaml".pathChanged()
-      || "Dockerfile".pathChanged() )
+      == "mtv-api-dockerfile" && ( "./cmd/forklift-api/***".pathChanged() || ".tekton/forklift-api-pull-request.yaml".pathChanged() )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: mtv-api-test
@@ -31,6 +30,8 @@ spec:
     value: Dockerfile
   - name: path-context
     value: cmd/forklift-api
+  - name: prefetch-input
+    value: '{"type": "gomod", "path": "../../go.mod"}'
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
