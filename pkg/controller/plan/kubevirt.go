@@ -39,6 +39,7 @@ import (
 	"github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1/ref"
 	"github.com/konveyor/forklift-controller/pkg/controller/plan/adapter"
 	ovfparser "github.com/konveyor/forklift-controller/pkg/controller/plan/adapter/ova"
+	inspectionparser "github.com/konveyor/forklift-controller/pkg/controller/plan/adapter/vsphere"
 	plancontext "github.com/konveyor/forklift-controller/pkg/controller/plan/context"
 	libcnd "github.com/konveyor/forklift-controller/pkg/lib/condition"
 	liberr "github.com/konveyor/forklift-controller/pkg/lib/error"
@@ -67,8 +68,10 @@ const (
 	// DV deletion on completion
 	AnnDeleteAfterCompletion = "cdi.kubevirt.io/storage.deleteAfterCompletion"
 	// Max Length for vm name
-	NameMaxLength  = 63
-	VddkVolumeName = "vddk-vol-mount"
+	NameMaxLength            = 63
+	VddkVolumeName           = "vddk-vol-mount"
+	DynamicScriptsVolumeName = "scripts-volume-mount"
+	DynamicScriptsMountPath  = "/mnt/dynamic_scripts"
 )
 
 // Labels
@@ -935,14 +938,30 @@ func (r *KubeVirt) GetGuestConversionPod(vm *plan.VMStatus) (pod *core.Pod, err 
 	return
 }
 
-func (r *KubeVirt) UpdateVmByConvertedConfig(vm *plan.VMStatus, pod *core.Pod, step *plan.Step) (err error) {
-	if pod.Status.PodIP == "" {
+func (r *KubeVirt) getInspectionXml(pod *core.Pod) (string, error) {
+	if pod == nil {
+		return "", liberr.New("no pod found to get the inspection")
+	}
+	inspectionUrl := fmt.Sprintf("http://%s:8080/inspection", pod.Status.PodIP)
+	resp, err := http.Get(inspectionUrl)
+	if err != nil {
+		return "", liberr.Wrap(err)
+	}
+	defer resp.Body.Close()
+	inspectionBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", liberr.Wrap(err)
+	}
+	return string(inspectionBytes), nil
+}
+
+func (r *KubeVirt) UpdateVmByConvertedConfig(vm *plan.VMStatus, pod *core.Pod, step *plan.Step) error {
+	if pod == nil || pod.Status.PodIP == "" {
 		//we need the IP for fetching the configuration of the convered VM.
-		return
+		return nil
 	}
 
 	url := fmt.Sprintf("http://%s:8080/ovf", pod.Status.PodIP)
-
 	/* Due to the virt-v2v operation, the ovf file is only available after the command's execution,
 	meaning it appears following the copydisks phase.
 	The server will be accessible via virt-v2v only after the command has finished.
@@ -953,29 +972,29 @@ func (r *KubeVirt) UpdateVmByConvertedConfig(vm *plan.VMStatus, pod *core.Pod, s
 	resp, err := http.Get(url)
 	if err != nil {
 		if strings.Contains(err.Error(), "connection refused") {
-			err = nil
+			return nil
 		}
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
-	vmConfigBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		err = liberr.Wrap(err)
-		return
-	}
-	vmConfigXML := string(vmConfigBytes)
-
 	switch r.Source.Provider.Type() {
 	case api.Ova:
+		vmConfigBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return liberr.Wrap(err)
+		}
+		vmConfigXML := string(vmConfigBytes)
 		if vm.Firmware, err = ovfparser.GetFirmwareFromConfig(vmConfigXML); err != nil {
-			err = liberr.Wrap(err)
-			return
+			return liberr.Wrap(err)
 		}
 	case api.VSphere:
-		if vm.OperatingSystem, err = ovfparser.GetOperationSystemFromConfig(vmConfigXML); err != nil {
-			err = liberr.Wrap(err)
-			return
+		inspectionXML, err := r.getInspectionXml(pod)
+		if err != nil {
+			return err
+		}
+		if vm.OperatingSystem, err = inspectionparser.GetOperationSystemFromConfig(inspectionXML); err != nil {
+			return liberr.Wrap(err)
 		}
 	}
 
@@ -991,7 +1010,7 @@ func (r *KubeVirt) UpdateVmByConvertedConfig(vm *plan.VMStatus, pod *core.Pod, s
 	}
 	step.MarkCompleted()
 	step.Progress.Completed = step.Progress.Total
-	return
+	return err
 }
 
 // Delete the PVC consumer pod on the destination cluster.
@@ -1775,8 +1794,9 @@ func (r *KubeVirt) guestConversionPod(vm *plan.VMStatus, vmVolumes []cnv.Volume,
 			InitContainers: initContainers,
 			Containers: []core.Container{
 				{
-					Name: "virt-v2v",
-					Env:  environment,
+					ImagePullPolicy: core.PullAlways,
+					Name:            "virt-v2v",
+					Env:             environment,
 					EnvFrom: []core.EnvFromSource{
 						{
 							Prefix: "V2V_",
@@ -1932,6 +1952,28 @@ func (r *KubeVirt) podVolumeMounts(vmVolumes []cnv.Volume, configMap *core.Confi
 		}
 	}
 
+	_, exists, err := r.findConfigMapInNamespace(Settings.VirtCustomizeConfigMap, r.Plan.Spec.TargetNamespace)
+	if err != nil {
+		err = liberr.Wrap(err)
+		return
+	}
+	if exists {
+		volumes = append(volumes, core.Volume{
+			Name: DynamicScriptsVolumeName,
+			VolumeSource: core.VolumeSource{
+				ConfigMap: &core.ConfigMapVolumeSource{
+					LocalObjectReference: core.LocalObjectReference{
+						Name: Settings.VirtCustomizeConfigMap,
+					},
+				},
+			},
+		})
+		mounts = append(mounts, core.VolumeMount{
+			Name:      DynamicScriptsVolumeName,
+			MountPath: DynamicScriptsMountPath,
+		})
+	}
+
 	// Temporary space for VDDK library
 	volumes = append(volumes, core.Volume{
 		Name: VddkVolumeName,
@@ -2039,6 +2081,22 @@ func (r *KubeVirt) libvirtDomain(vmCr *VirtualMachine, pvcs []*core.PersistentVo
 	}
 
 	return
+}
+
+func (r *KubeVirt) findConfigMapInNamespace(name string, namespace string) (configMap *core.ConfigMap, exists bool, err error) {
+	configmap := &core.ConfigMap{}
+	err = r.Destination.Client.Get(
+		context.TODO(),
+		types.NamespacedName{Namespace: namespace, Name: name},
+		configmap,
+	)
+	if err != nil {
+		if k8serr.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return configmap, true, nil
 }
 
 // Ensure the config map exists on the destination.
