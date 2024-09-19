@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/konveyor/forklift-controller/virt-v2v/pkg/global"
@@ -20,7 +21,8 @@ var (
 // This information is later used in the vm creation step such as the firmware for the OVA or
 // Operating System for the VM creation.
 func Start() error {
-	http.HandleFunc("/ovf", ovfHandler)
+	http.HandleFunc("/vm", vmHandler)
+	http.HandleFunc("/inspection", inspectorHandler)
 	http.HandleFunc("/shutdown", shutdownHandler)
 	server = &http.Server{Addr: ":8080"}
 
@@ -32,12 +34,35 @@ func Start() error {
 	return nil
 }
 
-func ovfHandler(w http.ResponseWriter, r *http.Request) {
-	xmlFilePath, err := GetXMLFile(global.DIR, "xml")
+func vmHandler(w http.ResponseWriter, r *http.Request) {
+	yamlFilePath, err := GetVmYamlFile(global.DIR)
+	if yamlFilePath == "" {
+		fmt.Println("Error: YAML file path is empty.")
+		http.Error(w, "YAML file path is empty", http.StatusInternalServerError)
+		return
+	}
 	if err != nil {
 		fmt.Println("Error getting XML file:", err)
 	}
-	xmlData, err := utils.ReadXMLFile(xmlFilePath)
+	yamlData, err := os.ReadFile(yamlFilePath)
+	if err != nil {
+		fmt.Printf("Error reading YAML file: %v\n", err)
+		http.Error(w, "Error reading YAML file", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/yaml")
+	_, err = w.Write(yamlData)
+	if err == nil {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		fmt.Printf("Error writing response: %v\n", err)
+		http.Error(w, "Error writing response", http.StatusInternalServerError)
+	}
+}
+
+func inspectorHandler(w http.ResponseWriter, r *http.Request) {
+	xmlData, err := os.ReadFile(global.INSPECTION)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -52,7 +77,6 @@ func ovfHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Error writing response: %v\n", err)
 		http.Error(w, "Error writing response", http.StatusInternalServerError)
 	}
-
 }
 
 func shutdownHandler(w http.ResponseWriter, r *http.Request) {
@@ -63,8 +87,8 @@ func shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetXMLFile(dir, fileExtension string) (string, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "*."+fileExtension))
+func GetVmYamlFile(dir string) (string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, fmt.Sprintf("%s.%s", utils.GetDiskName(), "yaml")))
 	if err != nil {
 		return "", err
 	}
