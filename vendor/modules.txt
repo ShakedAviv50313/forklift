@@ -148,7 +148,7 @@ github.com/google/gofuzz/bytesource
 # github.com/google/pprof v0.0.0-20211214055906-6f57359322fd
 ## explicit; go 1.14
 github.com/google/pprof/profile
-# github.com/google/uuid v1.4.0
+# github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
 # github.com/gophercloud/gophercloud v1.3.0 => github.com/kubev2v/gophercloud v0.0.0-20230629135522-9d701a75c760
