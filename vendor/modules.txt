@@ -151,7 +151,7 @@ github.com/google/pprof/profile
 # github.com/google/uuid v1.4.0
 ## explicit
 github.com/google/uuid
-# github.com/gophercloud/gophercloud v1.3.0 => github.com/kubev2v/gophercloud v0.0.0-20230629135522-9d701a75c760
+# github.com/gophercloud/gophercloud v1.14.1 => github.com/kubev2v/gophercloud v0.0.0-20230629135522-9d701a75c760
 ## explicit; go 1.14
 github.com/gophercloud/gophercloud
 github.com/gophercloud/gophercloud/openstack
