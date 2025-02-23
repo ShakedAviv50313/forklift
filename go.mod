@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/gin-contrib/cors v1.3.1
 	github.com/gin-gonic/gin v1.9.1
-	github.com/go-logr/logr v1.3.0
+	github.com/go-logr/logr v1.4.1
 	github.com/go-logr/zapr v1.2.4
 	github.com/google/uuid v1.4.0
 	github.com/gophercloud/gophercloud v1.3.0
@@ -35,7 +35,7 @@ require (
 	k8s.io/client-go v0.28.3
 	k8s.io/component-base v0.28.3
 	k8s.io/component-helpers v0.28.3
-	k8s.io/klog/v2 v2.110.1
+	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20240102154912-e7106e64919e
 	kubevirt.io/api v1.1.1
 	kubevirt.io/containerized-data-importer-api v1.59.0
