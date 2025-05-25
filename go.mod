@@ -3,7 +3,7 @@ module github.com/konveyor/forklift-controller
 go 1.21
 
 require (
-	github.com/gin-contrib/cors v1.3.1
+	github.com/gin-contrib/cors v1.7.5
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-logr/logr v1.3.0
 	github.com/go-logr/zapr v1.2.4
